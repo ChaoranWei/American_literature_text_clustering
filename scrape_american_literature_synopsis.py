@@ -35,7 +35,7 @@ def getText(Dict):
     newDict = {}
     for key, val in Dict.iteritems():
         temp = []
-        for url in val:
+        for url in val[53:]:
             url = 'http://americanliterature.com/' + url
             dom = web.Element(requests.get(url).text)
             body = dom.by_tag('body')[0]
@@ -54,5 +54,8 @@ def getText(Dict):
 #suburls = scrap_book(names, urls)
 #pickle.dump(suburls, open('literature.pkl','wb'))
 suburls = pickle.load(open('literature.pkl', 'rb'))
+
 print('dictionary loaded')
 text = getText(suburls)
+
+

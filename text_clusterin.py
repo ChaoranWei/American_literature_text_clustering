@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
+from __future__ import print_function
 import numpy as np
-import pandas as pd
+#import pandas as pd
 import nltk
 import re
 import os
@@ -7,9 +9,25 @@ import codecs
 from sklearn import feature_extraction
 import mpld3
 from nltk.stem.snowball import SnowballStemmer
-
+import pickle
+from sklearn.externals import joblib
 stopwords = nltk.corpus.stopwords.words("english")
 stemmer = SnowballStemmer("english")
+
+
+textDict = {}
+stopwords2 = ['\'s', 'n\’t',  '/b', 'b', '/i', 'br', 'href=', '/a','said', 'br br', 'look', 'like', 'did', 'time']
+
+for i in os.listdir(os.getcwd() + '/pickle'):
+    if i.endswith(".pkl"):
+        print(i[:-4])
+        
+        text = pickle.load(open('pickle/'+ i, 'rb'))
+        text = text.split(' ')
+        text = [j for j in text if j != stopwords2]
+        text = ' '.join(text)
+        textDict[i[:-4]] = text
+
 
 def tokenize_and_stem(text):
     tokens = [word for sent in nltk.sent_tokenize(text) for word in nltk.word_tokenize(sent)]
@@ -20,98 +38,124 @@ def tokenize_and_stem(text):
     stems = [stemmer.stem(t) for t in filtered_tokens]
     return stems
 
-def tokenize_and_stem(text):
+def tokenize_only(text):
     tokens = [word for sent in nltk.sent_tokenize(text) for word in nltk.word_tokenize(sent)]
     filtered_tokens = []
     for token in tokens:
         if re.search('[a-zA-Z]', token):
             filtered_tokens.append(token)
     return filtered_tokens
-
+'''
+print('tokenize and stem the documents...')
 
 totalvocab_stemmed = []
 totalvocab_tokenized = []
-for i in synopses:
-    allwords_stemmed = tokenize_and_stem(i)
+for i, j in textDict.iteritems():
+    allwords_stemmed = tokenize_and_stem(j)
     totalvocab_stemmed.extend(allwords_stemmed)
     
-    allwords_tokenized = tokenize_only(i)
-    totalvocab_tokenized.extend(allwords_tokenized)   
+    allwords_tokenized = tokenize_only(j)
+    totalvocab_tokenized.extend(allwords_tokenized) 
+    print('tokenize: ' +i)
+'''
+print('initialize vectorizer...')
     
-vocab_frame = pd.DataFrame({'words': totalvoab_tokenized}, index = totalvocab_stemmed)
+#vocab_frame = pd.DataFrame({'words': totalvoab_tokenized}, index = totalvocab_stemmed)
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-tfidf_vectorzer = TfidfVectorizer(max_df = 0.8, max_features = 200000, min_df = 0.2, 
-                                  stopwords = 'english',use_idf = True, 
-                                  tokenizer = tokenize_and_stem, ngram_range = (1,3))
+tfidf_vectorizer = TfidfVectorizer(max_df = 0.8, max_features = 20000, min_df = 0.05, 
+                                  stop_words = 'english',use_idf = True, 
+                                  tokenizer = tokenize_only, ngram_range = (1,2))
     
-
-tfidf_matrix = tfidf_vectorizer.fit_transform(synopses)
+print('vectorizing...')
+tfidf_matrix = tfidf_vectorizer.fit_transform(textDict.values())
+print('tfidf matrix shape: ')
 print(tfidf_matrix.shape)
+print
 
 terms = tfidf_vectorizer.get_feature_names()
+print('first 100 terms: ')
+print(terms[:100])
+print
 
-from sklearn.metric.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity
 dist = 1 - cosine_similarity(tfidf_matrix)
+print('distance matrix: ')
+print(dist)
+print
+
+joblib.dump(dist, 'dist.pkl')
+joblib.dump(tfidf_matrix, 'tfidf_matrix.pkl')
+joblib.dump(terms, 'terms.pkl')
+
 
 from sklearn.cluster import KMeans
 
-num_clusters = 5
+num_clusters = 10
 
 km = KMeans(n_clusters = num_clusters)
-
 km.fit(tfidf_matrix)
 
 clusters = km.labels_.tolist()
-
-from sklearn.externals import joblib
+print('clusters:')
+print(clusters)
+print()
 
 joblib.dump(km, 'cluster.pkl')
 
 km = joblib.load('cluster.pkl')
+terms = joblib.load('terms.pkl')
 clusters = km.labels_.tolist()
 
-films = { 'title': titles, 'rank': ranks, 'synopsis': synopses, 'cluster': clusters,
-          'genre': genres }
+lits = { 'title': textDict.keys(), 'cluster': clusters, 'text': textDict.values()}
 
-frame = pd.DataFrame(films, index = [clusters], columns = ['rank', 'title', 'cluster', 'genre'])
-frame['cluster'].value_counts()
+#print lits['title']
+#print lits['text'][0]
 
-grouped = frame['rank'].groupby(frame['cluster'])
-grouped.mean()
+#frame = pd.DataFrame(films, index = [clusters], columns = ['rank', 'title', 'cluster', 'genre'])
+#frame['cluster'].value_counts()
 
-from __future__ import print_function
+#grouped = frame['rank'].groupby(frame['cluster'])
+#grouped.mean()
+
 
 print("Top terms per cluster:")
-order_centroids = km.cluster_centers_.argsort()[:,::-1]
+order_centroids = km.cluster_centers_.argsort()[:,::-1] #coordinate of cluster center
 
+num_clusters = 10
+top_terms = {}
 for i in range(num_clusters):
     print("cluster %d words:" % i, end='')
-    
+    temp = ' '
     for ind in order_centroids[i, :6]:
-        print(' %s' % vocab_frame.ix[terms[ind].split(' ')].values.tolist()[0][0]
+        print(' %s' % terms[ind]
               .encode('utf-8', 'ignore'), end = ',')
+        temp += terms[ind] + ' '
+    top_terms[i] = temp
+    
     print()
     print()
     
     print("Cluster %d titles:" % i, end = '')
-    for title in frame.ix[i]['title'].values.tolist():
-        print(' %s,' % title, end = '')
+    cluster_title = [j for j, k in enumerate(lits['title']) if lits['cluster'][j] == i]
+    for title in cluster_title:
+        print(' %s,' % lits['title'][title], end = '')
         
     print()
     print()
     
-    
+ 
 #dimensionality reduction
 
 import os
 
 import matplotlib.pyplot as plt
-import matploblib as mpl
+import matplotlib as mpl
 
 from sklearn.manifold import MDS
 
+dist = joblib.load('dist.pkl')
 MDS()
 
 mds = MDS(n_components = 2, dissimilarity = "precomputed")
@@ -123,21 +167,18 @@ print()
 
 cluster_colors = {0: '#1b9e77', 1: '#d95f02', 2: '#7570b3', 3: '#e7298a', 4: '#66a61e'}
 
-cluster_names = {0: 'Family, home, war', 
-                 1: 'Police, killed, murders', 
-                 2: 'Father, New York, brothers', 
-                 3: 'Dance, singing, love', 
-                 4: 'Killed, soldiers, captain'}
 
-df = pd.DataFrame(dict(x=xs, y=ys, label = clusters, title = titles))
-groups = df.groupby('label')
+#df = pd.DataFrame(dict(x=xs, y=ys, label = clusters, title = titles))
+#groups = df.groupby('label')
 
-fig, ax = plt.subplot(figsize = (17, 9))
+fig, ax = plt.subplots(figsize=(10, 6))
 ax.margins(0.05)
 
-for name, group in groups:
-    ax.plot(group.x, group.y, marker = 'o', linestyle='', ms = 12,
-            label=cluster_names[name], color=cluster_colors[name],
+for i in range(num_clusters):
+    groupx = [xs[j] for j, k in enumerate(lits['cluster']) if lits['cluster'][j] == i]
+    groupy = [ys[j] for j, k in enumerate(lits['cluster']) if lits['cluster'][j] == i]
+    ax.plot(groupx, groupy, marker = 'o', linestyle='', ms = 12,
+            label=top_terms[i], color=cluster_colors[i],
             mec='none')
     ax.set_aspect('auto')
     ax.tick_params(axis = 'x',
@@ -152,14 +193,15 @@ for name, group in groups:
                    labelleft='off')
     
 ax.legend(numpoints = 1)
-for i in range(len(df)):
-    ax.text(df.ix[i]['x'], df.ix[i]['y'], df.ix[i]['title'], size=8)  
+
+for i in range(len(lits['title'])):
+    ax.text(xs[i], ys[i], lits['title'][i], size=8)  
     
 plt.show()
-#plt.savefig('clusters_small_noaxes.png', dpi=200)
+plt.savefig('clusters.png', dpi=200)
 
 plt.close()
-
+'''
 class TopToolbar(mpld3.plugins.PluginBase):
     """Plugin for moving toolbar to top of figure"""
 
@@ -243,3 +285,4 @@ mpld3.display() #show the plot
 #uncomment the below to export to html
 #html = mpld3.fig_to_html(fig)
 #print(html)
+'''
